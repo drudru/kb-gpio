@@ -2,6 +2,8 @@
 
 #include "common.h"
 
+#include <time.h>
+
 #include "mmapGpio.hpp"
 
 #include "NXGeom.hpp"
@@ -56,12 +58,15 @@ main()
     auto listen_sock = NXUnixPacketSocket::CreateServer("/tmp/kb-gpio");
 
     NXUnixPacketSocket kbgui_sock;
+    bool               kbgui_recvd_wait;
 
     NXUnixPacketSocket req_sock;
+    time_t             req_timer;
+    bool               req_recvd_wait;
 
-    int button = -1;
-    bool sleep_mode = false;
-    U16  sleep_counter = 0;
+    int  button        = -1;
+    bool sleep_mode    = false;
+    int  sleep_counter = 0;
 
     const char * button_msgs[] = { "b0", "b1", "b2", "b3" };
 
@@ -70,6 +75,7 @@ main()
 
     wait_for_kbgui(listen_sock, kbgui_sock);
     kbgui_sock.send_msg("ack");
+    kbgui_recvd_wait = false;
 
     while (true)
     {
@@ -84,6 +90,8 @@ main()
                 if (wait_for_kbreq(listen_sock, req_sock))
                 {
                     req_sock.send_msg("ack");
+                    req_timer = 0;
+                    req_recvd_wait = false;
                 }
             }
 
@@ -94,17 +102,11 @@ main()
             //
             if (req_sock.valid())
             {
-                if (button != -1)
-                {
-                    req_sock.send_msg(button_msgs[button]);
-                    req_sock.recv_ack();
-                    button = -1;
-                }
-                if (req_sock.readable())
+                while (req_sock.readable())
                 {
                     auto msg = req_sock.recv_msg();
 
-                    printf("Got req  msg %s\n", msg._str);
+                    fprintf(stderr, "Got req  msg %s\n", msg._str);
 
                     // Process message
                     if (msg == "")
@@ -113,32 +115,95 @@ main()
                         req_sock.reset();
 
                         kbgui_sock.send_msg("wake");
-                        kbgui_sock.recv_ack();
+                        {
+                            auto msg = kbgui_sock.recv_msg();
+
+                            // Process message
+                            if (msg == "")
+                            {
+                                fprintf(stderr, "Got kbgui connection died.\n");
+
+                                wait_for_kbgui(listen_sock, kbgui_sock);
+                                kbgui_sock.send_msg("ack");
+                                kbgui_recvd_wait = false;
+                            }
+                            else
+                            if (msg == "wait")
+                            {
+                                kbgui_recvd_wait = true;
+                            }
+                        }
+                    }
+                    else
+                    if (msg == "sysbeep")
+                    {
+                        _rpiGpio.play_tone(13, 6000, 50);
+                        _rpiGpio.play_tone(13, 7000, 50);
+                        _rpiGpio.play_tone(13, 8000, 50);
+                    }
+                    else
+                    if (msg == "delaysleep")
+                    {
+                        sleep_counter = -300;   // Boost it 30 seconds
+                    }
+                    else
+                    if (msg == "wait")
+                    {
+                        req_recvd_wait = true;
+                    }
+                }
+
+                // Client has handed back control
+                if (req_recvd_wait)
+                {
+                    if (time(NULL) - req_timer)
+                    {
+                        req_timer = time(NULL);
+                        req_sock.send_msg("tick");
+                        req_recvd_wait = false;
+                    }
+
+                    if (button != -1)
+                    {
+                        req_sock.send_msg(button_msgs[button]);
+                        req_recvd_wait = false;
+                        button = -1;
                     }
                 }
             }
             else // kb-gui
             {
-                if (button != -1)
-                {
-                    kbgui_sock.send_msg(button_msgs[button]);
-                    kbgui_sock.recv_ack();
-                    button = -1;
-                }
                 if (kbgui_sock.readable())
                 {
                     auto msg = kbgui_sock.recv_msg();
 
                     // Process message
-                    printf("Got kbgui msg %s\n", msg._str);
+                    fprintf(stderr, "Got kbgui msg %s\n", msg._str);
 
                     // Process message
                     if (msg == "")
                     {
-                        printf("Got kbgui connection died.\n");
+                        fprintf(stderr, "Got kbgui connection died.\n");
 
                         wait_for_kbgui(listen_sock, kbgui_sock);
                         kbgui_sock.send_msg("ack");
+                        kbgui_recvd_wait = false;
+                    }
+                    else
+                    if (msg == "wait")
+                    {
+                        kbgui_recvd_wait = true;
+                    }
+                }
+
+                // Client has handed back control
+                if (kbgui_recvd_wait)
+                {
+                    if (button != -1)
+                    {
+                        kbgui_sock.send_msg(button_msgs[button]);
+                        kbgui_recvd_wait = false;
+                        button = -1;
                     }
                 }
             }
@@ -161,7 +226,7 @@ main()
             if (button == -1)
             {
                 sleep_counter++;
-                if (sleep_counter > 100)
+                if (sleep_counter > 150)    // 150 * 0.1 sec = 15 seconds
                 {
                     sleep_mode = true;
                     break;
@@ -170,7 +235,7 @@ main()
             else
             {
                 sleep_counter = 0;
-                printf("Button! %d\n", button);
+                fprintf(stderr, "Button! %d\n", button);
 
                 // Wait for all to go to HIGH
                 // Ghetto debouncing...
@@ -193,7 +258,7 @@ main()
         screen.fill_rect(&screen_rect, NXColor{0,0,0,1});
         // TODO: set backlight pwm to zero
 
-        printf("sleep mode = %d", sleep_mode);
+        fprintf(stderr, "sleep mode = %d\n", sleep_mode);
         while (sleep_mode)
         {
             usleep(100000); //delay for 0.1 seconds
@@ -204,6 +269,7 @@ main()
                 || (_rpiGpio.readPin(22) == mmapGpio::LOW)
                 || (_rpiGpio.readPin(23) == mmapGpio::LOW)
                 || (_rpiGpio.readPin(27) == mmapGpio::LOW)
+                || listen_sock.readable()
            )
             sleep_mode = false;
             sleep_counter = 0;
@@ -211,8 +277,27 @@ main()
         // Slight debounce
         usleep(200000); //delay for 0.2 seconds
 
+        // Block until main gui draws
+        // Should optimize this later for the 'req' case
         kbgui_sock.send_msg("wake");
-        kbgui_sock.recv_ack();
+        {
+            auto msg = kbgui_sock.recv_msg();
+
+            // Process message
+            if (msg == "")
+            {
+                fprintf(stderr, "Got kbgui connection died.\n");
+
+                wait_for_kbgui(listen_sock, kbgui_sock);
+                kbgui_sock.send_msg("ack");
+                kbgui_recvd_wait = false;
+            }
+            else
+            if (msg == "wait")
+            {
+                kbgui_recvd_wait = true;
+            }
+        }
     }
 }
 
@@ -240,13 +325,13 @@ void wait_for_kbgui(NXUnixPacketSocket &listen_sock, NXUnixPacketSocket &kbgui_s
         else
         if (msg == "kb-req")
         {
-            printf("Strange - got a kb-req before kb-gui established\n");
+            fprintf(stderr, "Strange - got a kb-req before kb-gui established\n");
             new_sock.send_msg("retry");
         }
         else
         if (msg == "")
         {
-            printf("Strange - the other side crashed\n");
+            fprintf(stderr, "Strange - the other side crashed\n");
         }
         else
             panic();        // Unknown mesg
@@ -276,14 +361,13 @@ bool wait_for_kbreq(NXUnixPacketSocket &listen_sock, NXUnixPacketSocket &kbreq_s
         else
         if (msg == "kb-gui")
         {
-            printf("Strange - got a kb-gui before kb-gui established\n");
+            fprintf(stderr, "Strange - got a kb-gui before kb-gui established\n");
             panic();
         }
         else
         if (msg == "")
         {
-            printf("Strange - the other side crashed\n");
-
+            fprintf(stderr, "Strange - the other side crashed\n");
         }
         else
             panic();        // Unknown mesg
