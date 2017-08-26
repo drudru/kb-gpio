@@ -16,8 +16,13 @@
 void wait_for_kbgui(NXUnixPacketSocket &listen_sock, NXUnixPacketSocket &kbgui_sock);
 bool wait_for_kbreq(NXUnixPacketSocket &listen_sock, NXUnixPacketSocket &kbreq_sock);
 
-main()
+int DEBUG = 0;
+
+int main (int argc, char *argv[])
 {
+    if (getenv("DEBUG"))
+        DEBUG = true;
+
     mmapGpio _rpiGpio;
 
     {
@@ -87,8 +92,11 @@ main()
             // Only when we don't have a valid request socket
             if ((!req_sock.valid()) && listen_sock.readable())
             {
+                D("Getting new req_sock");
+
                 if (wait_for_kbreq(listen_sock, req_sock))
                 {
+                    D("Sending new req_sock ack");
                     req_sock.send_msg("ack");
                     req_timer = 0;
                     req_recvd_wait = false;
@@ -111,12 +119,15 @@ main()
                     // Process message
                     if (msg == "")
                     {
+                        D("req_sock closed");
                         // Close down socket
                         req_sock.reset();
 
                         kbgui_sock.send_msg("wake");
                         {
                             auto msg = kbgui_sock.recv_msg();
+
+                            fprintf(stderr, "Wake kbgui msg %s\n", msg._str);
 
                             // Process message
                             if (msg == "")
@@ -158,6 +169,7 @@ main()
                 {
                     if (time(NULL) - req_timer)
                     {
+                        D("gpio sent tick to req");
                         req_timer = time(NULL);
                         req_sock.send_msg("tick");
                         req_recvd_wait = false;
@@ -165,6 +177,7 @@ main()
 
                     if (button != -1)
                     {
+                        D("gpio sent button to req");
                         req_sock.send_msg(button_msgs[button]);
                         req_recvd_wait = false;
                         button = -1;
@@ -192,6 +205,7 @@ main()
                     else
                     if (msg == "wait")
                     {
+                        D("kb-gui sent wait");
                         kbgui_recvd_wait = true;
                     }
                 }
@@ -201,6 +215,7 @@ main()
                 {
                     if (button != -1)
                     {
+                        D("gpio sent button to kbgui");
                         kbgui_sock.send_msg(button_msgs[button]);
                         kbgui_recvd_wait = false;
                         button = -1;
@@ -277,11 +292,16 @@ main()
         // Slight debounce
         usleep(200000); //delay for 0.2 seconds
 
+        if (DEBUG && listen_sock.readable())
+            fprintf(stderr, "gpio woke up because listen readable\n");
+
         // Block until main gui draws
         // Should optimize this later for the 'req' case
         kbgui_sock.send_msg("wake");
         {
             auto msg = kbgui_sock.recv_msg();
+
+            fprintf(stderr, "Last wake kbgui msg %s\n", msg._str);
 
             // Process message
             if (msg == "")
@@ -334,7 +354,7 @@ void wait_for_kbgui(NXUnixPacketSocket &listen_sock, NXUnixPacketSocket &kbgui_s
             fprintf(stderr, "Strange - the other side crashed\n");
         }
         else
-            panic();        // Unknown mesg
+            panic1("Unknown mesg");
     }
 }
 
@@ -362,7 +382,7 @@ bool wait_for_kbreq(NXUnixPacketSocket &listen_sock, NXUnixPacketSocket &kbreq_s
         if (msg == "kb-gui")
         {
             fprintf(stderr, "Strange - got a kb-gui before kb-gui established\n");
-            panic();
+            panic1("kb-gui before kb-req");
         }
         else
         if (msg == "")
@@ -370,7 +390,7 @@ bool wait_for_kbreq(NXUnixPacketSocket &listen_sock, NXUnixPacketSocket &kbreq_s
             fprintf(stderr, "Strange - the other side crashed\n");
         }
         else
-            panic();        // Unknown mesg
+            panic1("Unknown mesg");
     }
 
     // Either we had SUCCESS or an EOF
