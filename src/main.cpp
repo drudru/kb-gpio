@@ -8,6 +8,7 @@
 
 #include "NXGeom.hpp"
 #include "NXCanvas.hpp"
+#include "KBScreen.hpp"
 
 #include "NXCStr.hpp"
 #include "NXFilePath.hpp"
@@ -45,16 +46,7 @@ int main (int argc, char *argv[])
         // TODO: PWM on 18 for backlight
     }
 
-    // Initialize render to /dev/fb1
-    //
-    int fbfd = open("/dev/fb1", O_RDWR);
-
-    NXRect screen_rect = {0, 0, 320, 240};
-    int screen_datasize = screen_rect.size.w * screen_rect.size.h * 2;
-    void * fbp = mmap(0, screen_datasize, PROT_READ | PROT_WRITE, MAP_SHARED, fbfd, 0);
-    close(fbfd);
-    NXCanvas screen { NXBitmap{(uint8_t *)fbp, screen_rect, NXColorChan::RGB565} };
-
+    KBScreen screen;
 
     // Run Loop
     //
@@ -270,7 +262,9 @@ int main (int argc, char *argv[])
         }
 
         // Blank the screen
-        screen.fill_rect(&screen_rect, NXColor{0,0,0,1});
+        screen.canvas()->clear();
+        screen.flush();
+
         // TODO: set backlight pwm to zero
 
         fprintf(stderr, "sleep mode = %d\n", sleep_mode);
