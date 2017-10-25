@@ -7,6 +7,10 @@ imports:
         git: https://github.com/drudru/nx.git
     rpi-gpio:
         git: https://github.com/drudru/rpi-gpio.git
+    kb-libs:
+        git: https://github.com/drudru/kb-libs.git
+    fips-stb:
+        git: https://github.com/fungos/fips-stb.git
 
 #    oryol-imgui:
 #        git: https://github.com/floooh/oryol-imgui.git
