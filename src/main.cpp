@@ -24,6 +24,8 @@ int main (int argc, char *argv[])
     if (getenv("DEBUG"))
         DEBUG = true;
 
+    KBScreen screen;
+
     mmapGpio _rpiGpio;
 
     {
@@ -40,13 +42,25 @@ int main (int argc, char *argv[])
         _rpiGpio.setPinDir(27, mmapGpio::INPUT);
         _rpiGpio.setPinPUD(27, mmapGpio::PUD_UP);
 
+        if (screen.disp_type == KBDispType::DT_ADA_OLED_BONNET)
+        {
+            _rpiGpio.setPinDir(4, mmapGpio::INPUT);
+            _rpiGpio.setPinPUD(4, mmapGpio::PUD_UP);
+
+            _rpiGpio.setPinDir(5, mmapGpio::INPUT);
+            _rpiGpio.setPinPUD(5, mmapGpio::PUD_UP);
+
+            _rpiGpio.setPinDir(6, mmapGpio::INPUT);
+            _rpiGpio.setPinPUD(6, mmapGpio::PUD_UP);
+
+        }
+
         // Piezo 
         _rpiGpio.setPinDir(13, mmapGpio::OUTPUT);
 
         // TODO: PWM on 18 for backlight
     }
 
-    KBScreen screen;
 
     // Run Loop
     //
@@ -65,7 +79,11 @@ int main (int argc, char *argv[])
     bool sleep_mode    = false;
     int  sleep_counter = 0;
 
-    const char * button_msgs[] = { "b0", "b1", "b2", "b3" };
+    //const char * button_msgs[] = { "b0", "b1", "b2", "b3", "b4", "b5", "b6" };
+    // On 2.2 TFT b0 -> b3 are left to right 
+    // On Joystick of bonnet ...
+    //
+    const char * button_msgs[] = { "up", "down", "right", "left", "select", "b5", "b6" };
 
 
     listen_sock.listen();
@@ -228,6 +246,18 @@ int main (int argc, char *argv[])
             else
             if (_rpiGpio.readPin(27) == mmapGpio::LOW)
                 button = 3;
+            else
+            if (screen.disp_type == KBDispType::DT_ADA_OLED_BONNET)
+            {
+                if (_rpiGpio.readPin(4) == mmapGpio::LOW)
+                    button = 4;
+                else
+                if (_rpiGpio.readPin(5) == mmapGpio::LOW)
+                    button = 5;
+                else
+                if (_rpiGpio.readPin(6) == mmapGpio::LOW)
+                    button = 6;
+            }
 
 
             if (button == -1)
@@ -249,13 +279,29 @@ int main (int argc, char *argv[])
                 while (true)
                 {
                     usleep(100000); //delay for 0.1 seconds
-                    if ( true
-                            && (_rpiGpio.readPin(17) == mmapGpio::HIGH)
-                            && (_rpiGpio.readPin(22) == mmapGpio::HIGH)
-                            && (_rpiGpio.readPin(23) == mmapGpio::HIGH)
-                            && (_rpiGpio.readPin(27) == mmapGpio::HIGH)
-                       )
-                        break;
+                    if (screen.disp_type == KBDispType::DT_ADA_OLED_BONNET)
+                    {
+                        if ( true
+                             && (_rpiGpio.readPin(17) == mmapGpio::HIGH)
+                             && (_rpiGpio.readPin(22) == mmapGpio::HIGH)
+                             && (_rpiGpio.readPin(23) == mmapGpio::HIGH)
+                             && (_rpiGpio.readPin(27) == mmapGpio::HIGH)
+                             && (_rpiGpio.readPin( 4) == mmapGpio::HIGH)
+                             && (_rpiGpio.readPin( 5) == mmapGpio::HIGH)
+                             && (_rpiGpio.readPin( 6) == mmapGpio::HIGH)
+                           )
+                           break;
+                    }
+                    else
+                    {
+                        if ( true
+                             && (_rpiGpio.readPin(17) == mmapGpio::HIGH)
+                             && (_rpiGpio.readPin(22) == mmapGpio::HIGH)
+                             && (_rpiGpio.readPin(23) == mmapGpio::HIGH)
+                             && (_rpiGpio.readPin(27) == mmapGpio::HIGH)
+                           )
+                           break;
+                    }
                 }
             }
             usleep(100000); //delay for 0.1 seconds
